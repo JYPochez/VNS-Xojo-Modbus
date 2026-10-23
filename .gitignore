@@ -1,0 +1,27 @@
+# macOS
+.DS_Store
+
+# Xojo (the debug app is built next to the project)
+Builds - */
+*.debug.app/
+*.xojo_uistate
+*.obsolete*
+*.rbuistate
+
+# Python
+__pycache__/
+*.pyc
+
+# Manuals are linked from the README, never committed (size + copyright)
+*.pdf
+
+# Local references (libplctag, manuals, HA integration) live outside the repo
+references/
+
+# Claude Code working files (notes, plan, tasks, settings) — local only, never published
+CLAUDE.md
+.claude/
+docs/PLAN.md
+
+# Icon artwork source: the icon itself is in VNS-Xojo-Modbus.xojo_resources
+docs/appicon.png

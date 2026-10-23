@@ -1,0 +1,19 @@
+VNS Xojo Modbus
+Copyright (c) 2026 Jean-Yves POCHEZ — MIT License (see LICENSE)
+
+Third-party knowledge used in this project
+------------------------------------------
+
+hass-hitachi_yutaki — https://github.com/alepee/hass-hitachi_yutaki
+  Copyright (c) 2024 Antoine Lépée — MIT License
+  The Hitachi airH2O / Yutaki register map, the write-command conventions, the
+  sentinel values (-127, -67, 0xFFFF) and the water-outlet 1200/1093 rule used by
+  the example app (HitachiAirH2O/) were cross-checked against, and partly derived
+  from, this Home Assistant integration.
+
+libplctag — https://github.com/libplctag/libplctag
+  MPL-2.0 / LGPL. Used as a design reference only (naming of Modbus areas as
+  co / di / hr / ir, request splitting). No libplctag code is included.
+
+Hitachi, Yutaki and airH2O are trademarks of their respective owners. This
+project is not affiliated with or endorsed by Hitachi or Johnson Controls-Hitachi.
