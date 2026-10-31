@@ -11,7 +11,8 @@ Two personalities:
            Initial values are the "Seen" column of docs/HITACHI_REGISTERS.md.
 
   generic  a plain Modbus server with 65536 coils, discrete inputs, holding and input
-           registers (all zero), supporting FC 01, 02, 03, 04, 05, 06, 15, 16.
+           registers (all zero), supporting FC 01, 02, 03, 04, 05, 06, 08 (sub-function 0), 15, 16, 17,
+           22, 23 and 43 / 14 (device identification).
            Used to test the library's write functions. Exception 2 beyond the address space.
 
 Usage:
@@ -51,6 +52,12 @@ GATEWAY_BLOCK = {0: 0x0F06, 1: 0x0067, 2: 0x0002,
 for slot in range(7):
     GATEWAY_BLOCK[50 + slot * 2] = 0xC0A8               # 192.168
     GATEWAY_BLOCK[51 + slot * 2] = 0x026C               # 2.108
+
+# Generic mode: identification answered by FC 17 and FC 43 / 14
+SERVER_ID = b"VNS-SIM"
+DEVICE_OBJECTS = {0: b"VeryniceSW", 1: b"VNS-SIM", 2: b"1.1.0",
+                  3: b"https://github.com/JYPochez/VNS-Xojo-Modbus", 4: b"VNS Modbus Simulator",
+                  5: b"Generic", 6: b"VNS Xojo Modbus tools"}
 
 ROW = re.compile(r"^\|\s*\*\*(\d+)\*\*\s*\|\s*\d+\s*\|\s*(R/W|R)\s*\|.*\|\s*([^|]*)\|\s*$")
 SEEN = re.compile(r"^\s*(0x[0-9A-Fa-f]+|-?\d+)")
@@ -161,6 +168,45 @@ class Device:
                     return exception(fc, 2)
                 self.holding[addr:addr + count] = struct.unpack(">%dH" % count, pdu[6:6 + nbytes])
                 return pdu[:5]
+            if fc == 23:
+                # read/write multiple registers: the write happens before the read
+                raddr, rcount, waddr, wcount, nbytes = struct.unpack(">HHHHB", pdu[1:10])
+                if not 1 <= rcount <= 125 or not 1 <= wcount <= 121 or nbytes != wcount * 2:
+                    return exception(fc, 3)
+                if raddr + rcount > 65536 or waddr + wcount > 65536:
+                    return exception(fc, 2)
+                self.holding[waddr:waddr + wcount] = struct.unpack(">%dH" % wcount, pdu[10:10 + nbytes])
+                return struct.pack(">BB", fc, rcount * 2) + struct.pack(">%dH" % rcount, *self.holding[raddr:raddr + rcount])
+            if fc == 22:
+                # mask write register: (current AND and_mask) OR (or_mask AND NOT and_mask)
+                addr, and_mask, or_mask = struct.unpack(">HHH", pdu[1:7])
+                current = self.holding[addr]
+                self.holding[addr] = (current & and_mask) | (or_mask & ~and_mask & 0xFFFF)
+                return pdu[:7]
+            if fc == 8:
+                # diagnostics: only sub-function 0 (return query data, a loopback)
+                sub = struct.unpack(">H", pdu[1:3])[0]
+                return pdu if sub == 0 else exception(fc, 1)
+            if fc == 17:
+                # report server id: id bytes, then the run indicator (FF = running)
+                data = SERVER_ID + b"\xFF"
+                return struct.pack(">BB", fc, len(data)) + data
+            if fc == 43:
+                # read device identification (MEI type 0x0E)
+                if pdu[1] != 0x0E:
+                    return exception(fc, 1)
+                code, object_id = pdu[2], pdu[3]
+                if code == 4:
+                    if object_id not in DEVICE_OBJECTS:
+                        return exception(fc, 2)
+                    ids = [object_id]
+                elif code in (1, 2):
+                    last = 2 if code == 1 else 6
+                    ids = [i for i in sorted(DEVICE_OBJECTS) if object_id <= i <= last]
+                else:
+                    return exception(fc, 3)
+                body = b"".join(struct.pack(">BB", i, len(DEVICE_OBJECTS[i])) + DEVICE_OBJECTS[i] for i in ids)
+                return struct.pack(">BBBBBBB", fc, 0x0E, code, 0x82, 0, 0, len(ids)) + body
         except struct.error:
             return exception(fc, 3)
         return exception(fc, 1)

@@ -8,7 +8,7 @@ hass-hitachi_yutaki — https://github.com/alepee/hass-hitachi_yutaki
   Copyright (c) 2024 Antoine Lépée — MIT License
   The Hitachi airH2O / Yutaki register map, the write-command conventions, the
   sentinel values (-127, -67, 0xFFFF) and the water-outlet 1200/1093 rule used by
-  the example app (HitachiAirH2O/) were cross-checked against, and partly derived
+  the example app (VNS-Modbus-TCP/HitachiAirH2O/) were cross-checked against, and partly derived
   from, this Home Assistant integration.
 
 libplctag — https://github.com/libplctag/libplctag

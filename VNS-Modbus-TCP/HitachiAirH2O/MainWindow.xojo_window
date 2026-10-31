@@ -875,7 +875,7 @@ End
 	#tag Constant, Name = kWarningSensitive, Type = String, Dynamic = False, Default = \"This command can stop heating or hot water\x2C or change how the unit is controlled.", Scope = Private
 	#tag EndConstant
 
-	#tag Constant, Name = kWindowTitle, Type = String, Dynamic = False, Default = \"Hitachi airH2O", Scope = Private
+	#tag Constant, Name = kWindowTitle, Type = String, Dynamic = False, Default = \"VNS Modbus TCP \xE2\x80\x94 Hitachi airH2O", Scope = Private
 	#tag EndConstant
 
 	#tag Constant, Name = kWriteDone, Type = String, Dynamic = False, Default = \"written", Scope = Private

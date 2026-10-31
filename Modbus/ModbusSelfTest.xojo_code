@@ -48,6 +48,8 @@ Protected Module ModbusSelfTest
 		  TestResponses
 		  TestPoints
 		  TestPointTable
+		  TestRTU
+		  TestMoreFunctions
 
 		  If mFailures = 0 Then
 		    mLines.Add(kAllPassed)
@@ -145,6 +147,14 @@ Protected Module ModbusSelfTest
 		  request = New ModbusRequest(ModbusTypes.eFunction.WriteMultipleCoils, 3, coils)
 		  Check(ToHex(request.BuildFrame(1, 1)) = "000100000008010F000300050115", "FC15 frame")
 
+		  Var toWrite() As UInt16
+		  toWrite.Add(11)
+		  toWrite.Add(22)
+		  toWrite.Add(33)
+		  request = New ModbusRequest(299, 4, 300, toWrite)
+		  Check(ToHex(request.BuildFrame(1, 1)) = "0001000000110117012B0004012C000306000B00160021", "FC23 frame")
+		  Check(request.ParseResponse(FromHex("17080000000B00160021")) And request.Values.Count = 4 And request.Values(3) = 33, "FC23 response: 4 registers read after the write")
+
 		  request = New ModbusRequest(ModbusTypes.eFunction.ReadInputRegisters, 0, 3)
 		  request.UnitID = 255
 		  Check(ToHex(request.BuildFrame(2, 1)) = "000200000006FF0400000003", "Request UnitID overrides the client's")
@@ -156,6 +166,77 @@ Protected Module ModbusSelfTest
 		    rejected = True
 		  End Try
 		  Check(rejected, "FC03 with 126 registers is rejected")
+		End Sub
+	#tag EndMethod
+
+	#tag Method, Flags = &h21
+		Private Sub TestRTU()
+		  ' Reference frames computed independently (Python, CRC-16/MODBUS).
+		  Var probe As MemoryBlock = FromHex("01030000000A")
+		  Check(ModbusTypes.CRC16(probe, probe.Size) = &hCDC5, "CRC16 of 01 03 00 00 00 0A = C5 CD")
+		  
+		  Var request As New ModbusRequest(ModbusTypes.eFunction.ReadHoldingRegisters, 0, 10)
+		  Check(ToHex(request.BuildRTUFrame(1)) = "01030000000AC5CD", "RTU frame FC03")
+		  
+		  Var oneRegister() As UInt16
+		  oneRegister.Add(3)
+		  request = New ModbusRequest(ModbusTypes.eFunction.WriteSingleRegister, 1, oneRegister)
+		  request.UnitID = 17
+		  Check(ToHex(request.BuildRTUFrame(1)) = "1106000100039A9B" And request.SentUnitID = 17, "RTU frame FC06 unit 17")
+		  
+		  Var toWrite() As UInt16
+		  toWrite.Add(11)
+		  toWrite.Add(22)
+		  toWrite.Add(33)
+		  request = New ModbusRequest(299, 4, 300, toWrite)
+		  Check(ToHex(request.BuildRTUFrame(1)) = "0117012B0004012C000306000B00160021125B", "RTU frame FC23")
+		  
+		  Check(ModbusTypes.RTUResponseLength(FromHex("0103")) = 0, "RTU length: more bytes needed")
+		  Check(ModbusTypes.RTUResponseLength(FromHex("010304")) = 9, "RTU length: FC03 with 4 data bytes = 9")
+		  Check(ModbusTypes.RTUResponseLength(FromHex("0183")) = 5, "RTU length: exception = 5")
+		  Check(ModbusTypes.RTUResponseLength(FromHex("0106")) = 8, "RTU length: FC06 echo = 8")
+		  Check(ModbusTypes.RTUResponseLength(FromHex("011708")) = 13, "RTU length: FC23 with 8 data bytes = 13")
+		  
+		  Var answer As MemoryBlock = FromHex("010304002CFF81BA6A")
+		  Var answerCRC As Integer = answer.UInt8Value(7) + answer.UInt8Value(8) * 256
+		  Check(ModbusTypes.CRC16(answer, answer.Size - 2) = answerCRC, "RTU answer CRC checks")
+		End Sub
+	#tag EndMethod
+
+	#tag Method, Flags = &h21
+		Private Sub TestMoreFunctions()
+		  ' FC 22, 08 / 00, 17, 43 / 14: frames and answers computed independently (Python).
+		  Var request As ModbusRequest = ModbusRequest.MaskWrite(400, &hF0F0, &h0F0F)
+		  Check(ToHex(request.BuildFrame(1, 1)) = "00010000000801160190F0F00F0F", "FC22 frame")
+		  Check(ToHex(request.BuildRTUFrame(1)) = "01160190F0F00F0F410D", "FC22 RTU frame")
+		  Check(request.ParseResponse(FromHex("160190F0F00F0F")), "FC22 echo accepted")
+		  
+		  request = ModbusRequest.ReturnQueryData(&hA537)
+		  Check(ToHex(request.BuildFrame(1, 1)) = "00010000000601080000A537", "FC08 frame")
+		  Check(ToHex(request.BuildRTUFrame(1)) = "01080000A537DA8D", "FC08 RTU frame")
+		  Check(request.ParseResponse(FromHex("080000A537")), "FC08 loopback accepted")
+		  request = ModbusRequest.ReturnQueryData(&hA537)
+		  Call request.ParseResponse(FromHex("080000A538"))
+		  Check(request.ErrorCode = ModbusTypes.eError.InvalidResponse, "FC08 different data is rejected")
+		  
+		  request = ModbusRequest.ReportServerID
+		  Check(ToHex(request.BuildFrame(1, 1)) = "0001000000020111", "FC17 frame")
+		  Check(ToHex(request.BuildRTUFrame(1)) = "0111C02C", "FC17 RTU frame")
+		  Check(request.ParseResponse(FromHex("1108564E532D53494DFF")) And request.ResponseBytes.Size = 8 _
+		  And request.ResponseBytes.UInt8Value(7) = &hFF, "FC17 answer: 8 bytes, running")
+		  
+		  request = ModbusRequest.ReadDeviceIdentification(1, 0)
+		  Check(ToHex(request.BuildFrame(1, 1)) = "000100000005012B0E0100", "FC43 frame")
+		  Check(ToHex(request.BuildRTUFrame(1)) = "012B0E01007077", "FC43 RTU frame")
+		  Var answer As String = "2B0E0182000003000A566572796E69636553570107564E532D53494D0205312E312E30"
+		  Check(request.ParseResponse(FromHex(answer)) And request.DeviceObjects.KeyCount = 3 _
+		  And request.DeviceObjects.Value(0).StringValue = "VeryniceSW" And request.DeviceObjects.Value(2).StringValue = "1.1.0" _
+		  And Not request.MoreFollows, "FC43 answer: 3 objects parsed")
+		  
+		  Check(ModbusTypes.RTUResponseLength(FromHex("01" + answer)) = 38, "RTU length: FC43 parsed from its objects = 38")
+		  Check(ModbusTypes.RTUResponseLength(FromHex("011108")) = 13, "RTU length: FC17 with 8 bytes = 13")
+		  Check(ModbusTypes.RTUResponseLength(FromHex("0116")) = 10, "RTU length: FC22 = 10")
+		  Check(ModbusTypes.RTUResponseLength(FromHex("0108"), 5) = 8, "RTU length: FC08 = request size")
 		End Sub
 	#tag EndMethod
 

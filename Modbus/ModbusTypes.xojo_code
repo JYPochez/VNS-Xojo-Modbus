@@ -30,6 +30,23 @@ Protected Module ModbusTypes
 		End Function
 	#tag EndMethod
 
+	#tag Method, Flags = &h1, Description = 4352432D3136206F6620746865206669727374206C656E6774682062797465732C2061732075736564206279204D6F64627573205254552028706F6C796E6F6D69616C20413030312C20696E697469616C2076616C75652046464646292E20546865206C6F7720627974652069732073656E742066697273742E0A
+		Protected Function CRC16(bytes As MemoryBlock, length As Integer) As Integer
+		  Var crc As Integer = &hFFFF
+		  For i As Integer = 0 To length - 1
+		    crc = Bitwise.BitXor(crc, bytes.UInt8Value(i))
+		    For bit As Integer = 1 To 8
+		      If (crc And 1) <> 0 Then
+		        crc = Bitwise.BitXor(Bitwise.ShiftRight(crc, 1), &hA001)
+		      Else
+		        crc = Bitwise.ShiftRight(crc, 1)
+		      End If
+		    Next
+		  Next
+		  Return crc
+		End Function
+	#tag EndMethod
+
 	#tag Method, Flags = &h1, Description = 4465636F646573207468652076616C756520746861742073746172747320617420696E64657820696E20612072656769737465722061727261792E2054776F2D20616E6420666F75722D7265676973746572207479706573207573652074686520676976656E20776F7264206F726465722E0A
 		Protected Function DecodeValue(registers() As UInt16, index As Integer, dataType As ModbusTypes.eDataType, order As ModbusTypes.eWordOrder = ModbusTypes.eWordOrder.ABCD) As Double
 		  #Pragma BreakOnExceptions Off
@@ -134,6 +151,8 @@ Protected Module ModbusTypes
 		    Return kErrorInvalidResponse
 		  Case ModbusTypes.eError.Cancelled
 		    Return kErrorCancelled
+		  Case ModbusTypes.eError.InvalidRequest
+		    Return kErrorInvalidRequest
 		  Else
 		    Return kErrorUnknown
 		  End Select
@@ -176,6 +195,39 @@ Protected Module ModbusTypes
 		    Return 4
 		  Else
 		    Return 1
+		  End Select
+		End Function
+	#tag EndMethod
+
+	#tag Method, Flags = &h1, Description = 546F74616C206C656E677468206F66207468652052545520616E7377657220746861742073746172747320746865206275666665722028756E69743B2066756E6374696F6E3B20646174613B20435243293B2030207768696C65206D6F726520627974657320617265206E65656465643B202D3120666F7220616E20756E6B6E6F776E2066756E6374696F6E20636F64652E207265717565737450445553697A653A2073697A65206F66207468652072657175657374205044552028464320303820616E73776572732068617665207468652073616D652073697A65292E0A
+		Protected Function RTUResponseLength(buffer As MemoryBlock, requestPDUSize As Integer = 0) As Integer
+		  ' RTU frames carry no length field: it follows from the function code and the byte count.
+		  ' requestPDUSize is needed for FC 08, whose answer has the size of the request.
+		  If buffer Is Nil Or buffer.Size < 2 Then Return 0
+		  Var code As Integer = buffer.UInt8Value(1)
+		  If (code And &h80) <> 0 Then Return 5
+		  Select Case code
+		  Case 1, 2, 3, 4, 17, 23
+		    If buffer.Size < 3 Then Return 0
+		    Return 5 + buffer.UInt8Value(2)
+		  Case 5, 6, 15, 16
+		    Return 8
+		  Case 8
+		    If requestPDUSize > 0 Then Return requestPDUSize + 3
+		    Return 8
+		  Case 22
+		    Return 10
+		  Case 43
+		    ' unit, 2B, 0E, category, conformity, more, next, count; then id / length / value
+		    If buffer.Size < 8 Then Return 0
+		    Var position As Integer = 8
+		    For i As Integer = 1 To buffer.UInt8Value(7)
+		      If buffer.Size < position + 2 Then Return 0
+		      position = position + 2 + buffer.UInt8Value(position + 1)
+		    Next
+		    Return position + 2
+		  Else
+		    Return -1
 		  End Select
 		End Function
 	#tag EndMethod
@@ -253,6 +305,21 @@ Protected Module ModbusTypes
 
 
 	#tag Constant, Name = kDefaultPort, Type = Integer, Dynamic = False, Default = \"502", Scope = Protected, Description = 5374616E64617264204D6F646275732054435020706F72742E0A
+	#tag EndConstant
+
+	#tag Constant, Name = kErrorBroadcastRead, Type = String, Dynamic = False, Default = \"Unit 0 (broadcast) can only write: nobody answers a broadcast", Scope = Protected
+	#tag EndConstant
+
+	#tag Constant, Name = kErrorCRC, Type = String, Dynamic = False, Default = \"CRC error in the answer", Scope = Protected
+	#tag EndConstant
+
+	#tag Constant, Name = kErrorInvalidRequest, Type = String, Dynamic = False, Default = \"Request not possible", Scope = Protected
+	#tag EndConstant
+
+	#tag Constant, Name = kErrorNoPort, Type = String, Dynamic = False, Default = \"Serial port not found:", Scope = Protected
+	#tag EndConstant
+
+	#tag Constant, Name = kErrorWrongUnit, Type = String, Dynamic = False, Default = \"Answer from another unit id", Scope = Protected
 	#tag EndConstant
 
 	#tag Constant, Name = kErrorCancelled, Type = String, Dynamic = False, Default = \"Request cancelled", Scope = Protected
@@ -339,6 +406,9 @@ Protected Module ModbusTypes
 	#tag Constant, Name = kMaxReadRegisters, Type = Integer, Dynamic = False, Default = \"125", Scope = Protected, Description = 4C617267657374206E756D626572206F662072656769737465727320696E206F6E6520726561642028464320303320616E64203034292E0A
 	#tag EndConstant
 
+	#tag Constant, Name = kMaxReadWriteRegisters, Type = Integer, Dynamic = False, Default = \"121", Scope = Protected, Description = 4C617267657374206E756D626572206F6620726567697374657273207772697474656E206279206F6E6520526561642F5772697465204D756C7469706C6520526567697374657273207265717565737420284643203233292E0A
+	#tag EndConstant
+
 	#tag Constant, Name = kMaxWriteBits, Type = Integer, Dynamic = False, Default = \"1968", Scope = Protected, Description = 4C617267657374206E756D626572206F6620636F696C7320696E206F6E6520777269746520284643203135292E0A
 	#tag EndConstant
 
@@ -387,7 +457,7 @@ Protected Module ModbusTypes
 	#tag Constant, Name = kSocketTimedOut, Type = String, Dynamic = False, Default = \"The device did not answer", Scope = Protected
 	#tag EndConstant
 
-	#tag Constant, Name = kVersion, Type = String, Dynamic = False, Default = \"1.0.0", Scope = Protected, Description = 56657273696F6E206F662074686520564E5320586F6A6F204D6F64627573206C6962726172792E0A
+	#tag Constant, Name = kVersion, Type = String, Dynamic = False, Default = \"1.1.0", Scope = Protected, Description = 56657273696F6E206F662074686520564E5320586F6A6F204D6F64627573206C6962726172792E0A
 	#tag EndConstant
 
 
@@ -423,6 +493,7 @@ Protected Module ModbusTypes
 		ExceptionResponse
 		InvalidResponse
 		Cancelled
+		InvalidRequest
 	#tag EndEnum
 
 	#tag Enum, Name = eFunction, Type = Integer, Flags = &h1, Description = 4D6F646275732066756E6374696F6E20636F64657320737570706F7274656420627920746865206C6962726172792E0A
@@ -432,8 +503,13 @@ Protected Module ModbusTypes
 		ReadInputRegisters = 4
 		WriteSingleCoil = 5
 		WriteSingleRegister = 6
+		Diagnostics = 8
 		WriteMultipleCoils = 15
 		WriteMultipleRegisters = 16
+		ReportServerID = 17
+		MaskWriteRegister = 22
+		ReadWriteMultipleRegisters = 23
+		EncapsulatedInterface = 43
 	#tag EndEnum
 
 	#tag Enum, Name = eWordOrder, Type = Integer, Flags = &h1, Description = 4279746520616E6420776F7264206F72646572206F662076616C756573207370616E6E696E67207365766572616C207265676973746572732E204142434420697320746865204D6F64627573207374616E6461726420286269672D656E6469616E292E0A

@@ -1,6 +1,7 @@
 #tag Class
 Protected Class ModbusTCPClient
 Inherits TCPSocket
+Implements ModbusTransport
 	#tag Event
 		Sub Connected()
 		  mConnectTimer.Stop
@@ -290,6 +291,30 @@ Inherits TCPSocket
 		End Sub
 	#tag EndMethod
 
+	#tag Method, Flags = &h0, Description = 53657473206F7220636C656172732062697473206F66206F6E6520686F6C64696E6720726567697374657220696E206F6E65207265717565737420284643203232293A20726573756C74203D202863757272656E7420414E4420616E644D61736B29204F5220286F724D61736B20414E44204E4F5420616E644D61736B292E0A
+		Sub MaskWriteRegister(registerAddress As Integer, andMask As Integer, orMask As Integer, callback As ModbusTypes.RequestCallback = Nil, tag As Variant = Nil)
+		  SendNew(ModbusRequest.MaskWrite(registerAddress, andMask, orMask), callback, tag)
+		End Sub
+	#tag EndMethod
+
+	#tag Method, Flags = &h0, Description = 526561647320746865206465766963652773206964656E74696669636174696F6E206F626A6563747320284643203433202F204D4549203134293A2076656E646F723B2070726F6475637420636F64653B207265766973696F6EE280A620696E20726571756573742E4465766963654F626A656374732E0A
+		Sub ReadDeviceIdentification(category As Integer = 1, firstObjectID As Integer = 0, callback As ModbusTypes.RequestCallback = Nil, tag As Variant = Nil)
+		  SendNew(ModbusRequest.ReadDeviceIdentification(category, firstObjectID), callback, tag)
+		End Sub
+	#tag EndMethod
+
+	#tag Method, Flags = &h0, Description = 526561647320746865206465766963652D7370656369666963206964656E74696669636174696F6E206279746573202846432031372920696E746F20726571756573742E526573706F6E736542797465732E2053657269616C2D6C696E652066756E6374696F6E2E0A
+		Sub ReportServerID(callback As ModbusTypes.RequestCallback = Nil, tag As Variant = Nil)
+		  SendNew(ModbusRequest.ReportServerID, callback, tag)
+		End Sub
+	#tag EndMethod
+
+	#tag Method, Flags = &h0, Description = 4C6F6F706261636B207465737420284643203038202F203030293A20746865206465766963652073656E64732064617461206261636B20756E6368616E6765642E2053657269616C2D6C696E652066756E6374696F6E2E0A
+		Sub ReturnQueryData(data As Integer, callback As ModbusTypes.RequestCallback = Nil, tag As Variant = Nil)
+		  SendNew(ModbusRequest.ReturnQueryData(data), callback, tag)
+		End Sub
+	#tag EndMethod
+
 	#tag Method, Flags = &h0, Description = 526561647320636F756E7420636F696C7320284643203031292E2054686520616E73776572206172726976657320696E2052657175657374436F6D706C657465643B206F7220696E2063616C6C6261636B207768656E20676976656E2E0A
 		Sub ReadCoils(startAddress As Integer, count As Integer, callback As ModbusTypes.RequestCallback = Nil, tag As Variant = Nil)
 		  SendNew(New ModbusRequest(ModbusTypes.eFunction.ReadCoils, startAddress, count), callback, tag)
@@ -342,6 +367,16 @@ Inherits TCPSocket
 		  Else
 		    SendNext
 		  End If
+		End Sub
+	#tag EndMethod
+
+	#tag Method, Flags = &h0, Description = 57726974657320726567697374657256616C75657320617420777269746541646472657373207468656E2072656164732072656164436F756E74207265676973746572732066726F6D2072656164416464726573732C20696E206F6E65207265717565737420284643203233292E2056616C7565732066726F6D202D333237363820746F2036353533352E0A
+		Sub ReadWriteMultipleRegisters(readAddress As Integer, readCount As Integer, writeAddress As Integer, registerValues() As Integer, callback As ModbusTypes.RequestCallback = Nil, tag As Variant = Nil)
+		  Var words() As UInt16
+		  For Each registerValue As Integer In registerValues
+		    words.Add(ToRegister(registerValue))
+		  Next
+		  SendNew(New ModbusRequest(readAddress, readCount, writeAddress, words), callback, tag)
 		End Sub
 	#tag EndMethod
 

@@ -1,7 +1,7 @@
 # Console live test
 
 A console project that uses the library files in place (`../../Modbus`) and checks them against
-the generic simulator: every function code (01–06, 15, 16), a negative register value and a
+the generic simulator: every function code (01–06, 08, 15, 16, 17, 22, 23, 43), a negative register value and a
 word-swapped `Float32`, after the offline `ModbusSelfTest`. It is also the reference for using
 the library without a window (subclass + `App.DoEvents` loop, see the developer guide § 11).
 

@@ -1,8 +1,9 @@
 # VNS Xojo Modbus — developer guide
 
 How to build your own Xojo application on top of the library, step by step, followed by the
-complete API reference. The Hitachi airH2O app in this repository is used as the worked example
-throughout; open it next to this guide.
+complete API reference. The Hitachi airH2O app (**VNS Modbus TCP**, in `VNS-Modbus-TCP/`) is used
+as the worked example throughout; open it next to this guide. **VNS Modbus RTU**
+(`VNS-Modbus-RTU/`) shows the serial client.
 
 - [1. What you get](#1-what-you-get)
 - [2. Install](#2-install)
@@ -15,9 +16,10 @@ throughout; open it next to this guide.
 - [9. Writing safely](#9-writing-safely)
 - [10. Errors and connection handling](#10-errors-and-connection-handling)
 - [11. Console, Web and threads](#11-console-web-and-threads)
-- [12. Testing without hardware](#12-testing-without-hardware)
-- [13. Troubleshooting](#13-troubleshooting)
-- [14. API reference](#14-api-reference)
+- [12. Modbus RTU over a serial line](#12-modbus-rtu-over-a-serial-line)
+- [13. Testing without hardware](#13-testing-without-hardware)
+- [14. Troubleshooting](#14-troubleshooting)
+- [15. API reference](#15-api-reference)
 
 ---
 
@@ -25,7 +27,9 @@ throughout; open it next to this guide.
 
 | Class / module | Role |
 |----------------|------|
-| `ModbusTCPClient` | The connection. A `TCPSocket` subclass: drop it on a window, set `Address`, call `ReadHoldingRegisters`… Queue, timeouts and reconnection are handled for you. |
+| `ModbusTCPClient` | The connection over Ethernet. A `TCPSocket` subclass: drop it on a window, set `Address`, call `ReadHoldingRegisters`… Queue, timeouts and reconnection are handled for you. |
+| `ModbusRTUClient` | The connection over a serial line (Modbus RTU, RS-485 / RS-232). A `SerialConnection` subclass with the same methods and events. **Not tested on a real device yet** (§ 12). |
+| `ModbusTransport` | The interface both clients implement; `ModbusPoller` works with either. |
 | `ModbusRequest` | One request and its answer (`Values()`, `ErrorCode`, `ResponseTimeMS`…). |
 | `ModbusPoint` | One named value of a device: where it is (`hr1080:int16`), how to show it (scale, unit, labels), whether it may be written. |
 | `ModbusPointTable` | Builds a list of points from a plain-text table — the easiest way to describe a device. |
@@ -36,14 +40,17 @@ throughout; open it next to this guide.
 
 Supported Modbus functions: **01** read coils, **02** read discrete inputs, **03** read holding
 registers, **04** read input registers, **05** write single coil, **06** write single register,
-**15** write multiple coils, **16** write multiple registers. Modbus **TCP** only (no serial RTU).
+**15** write multiple coils, **16** write multiple registers, **23** read/write multiple
+registers, **22** mask write register, **08 / 00** diagnostics loopback, **17** report server id,
+**43 / 14** read device identification. Over **TCP** (`ModbusTCPClient`) and over a serial line in **RTU** framing
+(`ModbusRTUClient`).
 
 Everything is pure Xojo (API 2, Xojo 2026r2.1): no plugin, no `Declare`.
 
 ## 2. Install
 
 1. Copy the [`Modbus`](../Modbus) folder next to your project.
-2. In the Xojo IDE, drag the folder into the Navigator (or *File → Import*). Nine items appear.
+2. In the Xojo IDE, drag the folder into the Navigator (or *File → Import*). Eleven items appear.
 3. Build once. That's all: the library has no other dependency.
 
 Keep the folder name and the item names; your code refers to `ModbusTypes.eError.Timeout` and so on.
@@ -175,7 +182,32 @@ Device.WriteMultipleRegisters(100, registerValues)    ' FC 16, at most 123
 
 Var coilValues() As Boolean = Array(True, False, True)
 Device.WriteMultipleCoils(0, coilValues)              ' FC 15, at most 1968
+
+' FC 23: write 3 registers at 300, then read 4 registers from 299, in one request
+Device.ReadWriteMultipleRegisters(299, 4, 300, registerValues)
 ```
+
+### Other functions
+
+```xojo
+Device.MaskWriteRegister(1032, &hFFFE, &h0000)    ' FC 22: clear bit 0, keep the others
+Device.ReturnQueryData(&hA537)                     ' FC 08 / 00: loopback, the answer echoes 0xA537
+Device.ReportServerID                              ' FC 17: request.ResponseBytes
+Device.ReadDeviceIdentification(1)                 ' FC 43 / 14: request.DeviceObjects
+
+Sub RequestCompleted(request As ModbusRequest)
+  If request.FunctionCode = ModbusTypes.eFunction.EncapsulatedInterface Then
+    Var vendor As String = request.DeviceObjects.Lookup(0, "").StringValue   ' 0 vendor, 1 product code, 2 revision…
+    If request.MoreFollows Then Device.ReadDeviceIdentification(request.DeviceIDCategory, request.NextObjectID)
+  End If
+End Sub
+```
+
+FC 08 and FC 17 are serial-line functions: TCP devices may answer *Illegal function*. The byte
+layouts of every function are in the [protocol reference](MODBUS_PROTOCOL.md).
+
+With FC 23 the device writes first, then reads: `request.Values()` holds the registers read
+(1–125), `request.WriteValues()` the registers written (1–121).
 
 A write answer has no values; `request.Succeeded` tells whether the device accepted it.
 
@@ -269,7 +301,7 @@ its `Unit` and `Decimals`, in the user's locale. A raw value listed in `InvalidV
 
 `ModbusPointTable.Parse` turns plain text into points, one line per point, fields separated by
 semicolons. This is how the airH2O app describes its 123 registers
-(`HitachiAirH2O/AirH2OPoints.kPointTable`):
+(`VNS-Modbus-TCP/HitachiAirH2O/AirH2OPoints.kPointTable`):
 
 ```
 # name;location;scale;unit;category;label;access;min;max;labels;invalid;decimals
@@ -321,7 +353,7 @@ End Function
 
 ```xojo
 ' window Opening
-Poller.Client = Device
+Poller.Client = Device                    ' a ModbusTCPClient or a ModbusRTUClient
 For Each p As ModbusPoint In ModbusPointTable.Parse(kMyDeviceTable)
   Poller.AddPoint(p)
 Next
@@ -450,7 +482,51 @@ global shared by all sessions.
 **Threads**: the client is not thread-safe. Use it from the main thread; from a cooperative
 `Thread`, only through methods that queue a request. Never from a preemptive thread.
 
-## 12. Testing without hardware
+## 12. Modbus RTU over a serial line
+
+> ⚠️ **Not tested on a real device yet.** `ModbusRTUClient` and the VNS Modbus RTU app have not
+> been tested with a real Modbus RTU device: the author does not have one. The RTU frames, CRC-16
+> values and answer lengths are verified by the self-test against reference frames. Reports are
+> welcome — see [RTU_TESTING.md](RTU_TESTING.md).
+
+`ModbusRTUClient` inherits `SerialConnection` and has the same methods and events as
+`ModbusTCPClient` (`ReadHoldingRegisters`, `WriteSingleRegister`, `Send`, `RequestCompleted`…),
+so everything in §§ 5–10 applies. Drop one on a window and set the line instead of an address:
+
+```xojo
+' the names of the serial ports of this computer
+For Each portName As String In ModbusRTUClient.PortNames
+  PopupPort.AddRow(portName)
+Next
+
+RTU.PortName = "usbserial-A50285BI"            ' one of PortNames
+RTU.BaudRate = 9600                            ' a real number, mapped to Xojo's constants
+RTU.DataBits = 8
+RTU.Parity = SerialConnection.Parities.None    ' default Even (Modbus standard 19200 8E1)
+RTU.StopBit = SerialConnection.StopBits.One
+RTU.UnitID = 17                                ' the device's unit id, 1-247
+RTU.ReadHoldingRegisters(0, 10)                ' opens the port by itself
+```
+
+How RTU differs from TCP, and what the client does about it:
+
+- **One request at a time on the line**, and a silence of 3.5 characters between frames
+  (computed from `BaudRate`; `InterFrameDelayMS` overrides it).
+- **No length field**: the end of an answer is found from its function code and byte count.
+- **CRC-16** on every frame: an answer with a wrong CRC fails with `InvalidResponse`
+  ("CRC error in the answer"); an answer from another unit id too.
+- **`TimeoutMS`** (1000) counts from the end of the transmission.
+- **Unit 0 = broadcast**: every device executes the write and none answers; the request
+  succeeds once sent. A read cannot be broadcast (`eError.InvalidRequest`).
+- **`SuppressEcho`**: some RS-485 adapters send back what they transmit; set it to ignore that copy.
+- **`FrameTraced(sent As Boolean, frame As MemoryBlock)`**: every frame sent and received, for a
+  log or a trace view (VNS Modbus RTU shows them in hex).
+- `Connect` opens the port; `Disconnect` / `Close` close it. A port that cannot be opened ends in
+  `Disconnected(ConnectFailed)` with the reason in `LastErrorMessage`.
+
+`ModbusPoller` works the same with an RTU client: set `Poller.Client = RTU`.
+
+## 13. Testing without hardware
 
 `tools/airh2o_simulator.py` (Python 3, no dependency) is a Modbus TCP server:
 
@@ -475,7 +551,7 @@ For Each line As String In ModbusSelfTest.Run
 Next
 ```
 
-## 13. Troubleshooting
+## 14. Troubleshooting
 
 | Symptom | Look at |
 |---------|---------|
@@ -487,7 +563,7 @@ Next
 | Timeouts on every request | address, port, firewall, unit id behind a gateway; some gateways accept only listed client IPs |
 | macOS: *No route to the device (65)* | Local Network permission — see the [README](../README.md#troubleshooting) |
 
-## 14. API reference
+## 15. API reference
 
 Conventions: addresses are 0-based; times are in milliseconds; "raises" means
 `InvalidArgumentException` unless stated otherwise.
@@ -526,6 +602,11 @@ Conventions: addresses are 0-based; times are in milliseconds; "raises" means
 | `WriteSingleRegister(registerAddress, newValue As Integer, [callback], [tag])` | FC 06, -32768 to 65535 |
 | `WriteMultipleCoils(startAddress, coilValues() As Boolean, [callback], [tag])` | FC 15, 1–1968 |
 | `WriteMultipleRegisters(startAddress, registerValues() As Integer, [callback], [tag])` | FC 16, 1–123 |
+| `ReadWriteMultipleRegisters(readAddress, readCount, writeAddress, registerValues() As Integer, [callback], [tag])` | FC 23: write 1–121, then read 1–125 |
+| `MaskWriteRegister(registerAddress, andMask, orMask, [callback], [tag])` | FC 22 |
+| `ReturnQueryData(data, [callback], [tag])` | FC 08 / 00 loopback |
+| `ReportServerID([callback], [tag])` | FC 17 |
+| `ReadDeviceIdentification([category = 1], [firstObjectID = 0], [callback], [tag])` | FC 43 / 14 |
 | `Send(request As ModbusRequest)` | queue a request built yourself |
 | `CancelPending()` | fail every queued request with `Cancelled` (the one in flight continues) |
 
@@ -540,12 +621,43 @@ Conventions: addresses are 0-based; times are in milliseconds; "raises" means
 | `RequestCompleted(request As ModbusRequest)` | a request without callback succeeded |
 | `RequestFailed(request As ModbusRequest)` | a request without callback failed |
 
+### ModbusRTUClient (inherits SerialConnection) — not tested on a real device yet
+
+Same methods and events as `ModbusTCPClient` (`Read…`, `Write…`, `ReadWriteMultipleRegisters`,
+`MaskWriteRegister`, `ReturnQueryData`, `ReportServerID`, `ReadDeviceIdentification`,
+`Send`, `CancelPending`, `Connect`, `Disconnect`, `Close`; `Connected`, `Disconnected`,
+`RequestCompleted`, `RequestFailed`), plus:
+
+| Member | Default | Description |
+|--------|---------|-------------|
+| `PortName` | | serial port name, one of `PortNames()` |
+| `PortNames() As String()` (shared) | | the serial ports of this computer |
+| `BaudRate` | 19200 | bits per second |
+| `DataBits` | 8 | 7 or 8 |
+| `Parity`, `StopBit` | Even, One | inherited from `SerialConnection` |
+| `UnitID` | 1 | 1–247; 0 broadcasts writes |
+| `TimeoutMS` | 1000 | wait for each answer, from the end of the transmission |
+| `InterFrameDelayMS` | 0 | silence between frames; 0 = 3.5 characters at `BaudRate` |
+| `SuppressEcho` | False | ignore the echo of RS-485 adapters |
+| `LastErrorMessage`, `State`, `PendingCount` | | as for TCP |
+| event `FrameTraced(sent As Boolean, frame As MemoryBlock)` | | every frame sent / received |
+
+### ModbusTransport (interface)
+
+`Send(request As ModbusRequest)` — implemented by both clients; the type of `ModbusPoller.Client`.
+
 ### ModbusRequest
 
 | Member | Description |
 |--------|-------------|
 | `Constructor(code, startAddress, count)` | read request (FC 01–04); raises for an invalid address or count |
-| `Constructor(code, startAddress, writeValues() As UInt16)` | write request (FC 05, 06, 15, 16) |
+| `Constructor(code, startAddress, registerValues() As UInt16)` | write request (FC 05, 06, 15, 16) |
+| `Constructor(readAddress, readCount, writeAddress, registerValues() As UInt16)` | FC 23 request |
+| `WriteStartAddress`, `WriteValues() As UInt16` | FC 23: what is written |
+| `MaskWrite(address, andMask, orMask)`, `ReturnQueryData(data)`, `ReportServerID`, `ReadDeviceIdentification(category, firstObjectID)` (shared) | build FC 22, 08, 17, 43 requests |
+| `ResponseBytes As MemoryBlock` | FC 17 answer |
+| `DeviceObjects As Dictionary`, `ConformityLevel`, `MoreFollows`, `NextObjectID`, `DeviceIDCategory`, `FirstObjectID` | FC 43 |
+| `SubFunction` | FC 08 |
 | `FunctionCode`, `Address`, `Quantity` | what is asked |
 | `UnitID` | -1 = the client's |
 | `Values() As UInt16` | registers read (or to write); 0/1 per bit for coils and inputs |
@@ -554,7 +666,8 @@ Conventions: addresses are 0-based; times are in milliseconds; "raises" means
 | `ErrorCode`, `ErrorMessage`, `ExceptionCode` | why it failed |
 | `ResponseTimeMS` | round trip of the answer |
 | `Callback`, `Tag` | yours |
-| `TransactionID`, `SentMicroseconds`, `BuildFrame`, `ParseResponse`, `Fail` | used by the client |
+| `SentUnitID` | unit id actually sent |
+| `TransactionID`, `SentMicroseconds`, `BuildFrame`, `BuildRTUFrame`, `BuildPDU`, `ParseResponse`, `Fail` | used by the clients |
 
 ### ModbusPoint
 
@@ -584,7 +697,7 @@ Conventions: addresses are 0-based; times are in milliseconds; "raises" means
 
 | Member | Description |
 |--------|-------------|
-| `Client As ModbusTCPClient` | the connection to use |
+| `Client As ModbusTransport` | the connection to use: a `ModbusTCPClient` or a `ModbusRTUClient` |
 | `Period`, `RunMode` | inherited from `Timer` |
 | `MaxGap` (8), `MaxBlockRegisters` (125) | grouping of reads |
 | `PreferSingleRegisterWrite` (True), `RefreshAfterWrite` (True) | write behaviour |
@@ -606,10 +719,10 @@ Conventions: addresses are 0-based; times are in milliseconds; "raises" means
 | Enum | Values |
 |------|--------|
 | `eArea` | Coil, DiscreteInput, HoldingRegister, InputRegister |
-| `eFunction` | ReadCoils = 1, ReadDiscreteInputs = 2, ReadHoldingRegisters = 3, ReadInputRegisters = 4, WriteSingleCoil = 5, WriteSingleRegister = 6, WriteMultipleCoils = 15, WriteMultipleRegisters = 16 |
+| `eFunction` | ReadCoils = 1, ReadDiscreteInputs = 2, ReadHoldingRegisters = 3, ReadInputRegisters = 4, WriteSingleCoil = 5, WriteSingleRegister = 6, Diagnostics = 8, WriteMultipleCoils = 15, WriteMultipleRegisters = 16, ReportServerID = 17, MaskWriteRegister = 22, ReadWriteMultipleRegisters = 23, EncapsulatedInterface = 43 |
 | `eDataType` | Bit, Unsigned16, Signed16, Unsigned32, Signed32, Float32, Float64 |
 | `eWordOrder` | ABCD, CDAB, BADC, DCBA |
-| `eError` | None, NotConnected, ConnectFailed, ConnectionLost, Timeout, ExceptionResponse, InvalidResponse, Cancelled |
+| `eError` | None, NotConnected, ConnectFailed, ConnectionLost, Timeout, ExceptionResponse, InvalidResponse, Cancelled, InvalidRequest |
 | `eConnectionState` | Disconnected, Connecting, Connected |
 
 **Methods**
@@ -622,11 +735,13 @@ Conventions: addresses are 0-based; times are in milliseconds; "raises" means
 | `ToSigned16(value) As Integer` | 65409 → -127 |
 | `AreaPrefix(area) As String`, `AreaReadFunction(area) As eFunction` | |
 | `ErrorText(code)`, `ExceptionText(code)`, `SocketErrorText(code)` | English texts |
+| `CRC16(bytes, length) As Integer` | Modbus RTU CRC (low byte sent first) |
+| `RTUResponseLength(buffer, [requestPDUSize]) As Integer` | length of the RTU answer at the start of buffer; 0 = more bytes needed |
 
 **Delegate** `RequestCallback(request As ModbusRequest)`.
 
 **Constants** `kDefaultPort` 502, `kMaxReadRegisters` 125, `kMaxReadBits` 2000,
-`kMaxWriteRegisters` 123, `kMaxWriteBits` 1968, `kVersion`.
+`kMaxWriteRegisters` 123, `kMaxWriteBits` 1968, `kMaxReadWriteRegisters` 121, `kVersion`.
 
 ### ModbusSelfTest (module)
 

@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.1.0 — 2026-10-31
+
+**Library**
+- **FC 23** Read/Write Multiple Registers: `ModbusRequest(readAddress, readCount, writeAddress,
+  registerValues())`, `ReadWriteMultipleRegisters` on the clients.
+- **FC 22** Mask Write Register, **FC 08 / 00** Return Query Data (loopback), **FC 17** Report
+  Server ID, **FC 43 / 14** Read Device Identification: `MaskWriteRegister`, `ReturnQueryData`,
+  `ReportServerID`, `ReadDeviceIdentification` on both clients; `ModbusRequest.ResponseBytes`,
+  `DeviceObjects`, `MoreFollows`, `NextObjectID`.
+- **`ModbusRTUClient`** (a `SerialConnection` subclass): Modbus **RTU** over a serial line, same
+  API and events as `ModbusTCPClient`, plus `FrameTraced`. CRC-16, 3.5-character frame gap,
+  answer end from its length, CRC and unit checks, broadcast writes, echo suppression for RS-485
+  adapters. ⚠️ **Not tested on a real device yet** — the author does not have one.
+- **`ModbusTransport`** interface implemented by both clients; `ModbusPoller.Client` accepts either.
+- `ModbusTypes.CRC16`, `RTUResponseLength`, `eError.InvalidRequest`; `ModbusRequest.BuildPDU`
+  (now public), `BuildRTUFrame`, `SentUnitID`.
+- Self-test: 87 checks, including RTU frames and CRCs against reference values; the console test
+  checks every function code live against the simulator.
+
+**Apps**
+- The airH2O app is now **VNS Modbus TCP**, in `VNS-Modbus-TCP/`.
+- New **VNS Modbus RTU**, a generic serial Modbus tester (`VNS-Modbus-RTU/`) — untested on a real
+  device.
+
+**Docs** — developer guide (new functions, RTU, `ModbusTransport`), [RTU testing guide](docs/RTU_TESTING.md),
+[Modbus protocol reference](docs/MODBUS_PROTOCOL.md).
+
 ## 1.0.0 — 2026-10-23
 
 First public release.

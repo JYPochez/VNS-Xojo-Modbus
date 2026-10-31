@@ -4,7 +4,7 @@ Python 3.8+ helpers, standard library only. They are not part of the Xojo librar
 
 | Script | Purpose |
 |--------|---------|
-| `airh2o_simulator.py` | Modbus TCP server that behaves like the Hitachi ATW-MBS-02 gateway (`--mode airh2o`, default) or a plain Modbus device supporting FC 01–06, 15, 16 (`--mode generic`). Lets you run the example app and test the library without hardware. |
+| `airh2o_simulator.py` | Modbus TCP server that behaves like the Hitachi ATW-MBS-02 gateway (`--mode airh2o`, default) or a plain Modbus device supporting FC 01–06, 15, 16, 23 (`--mode generic`). Lets you run the example app and test the library without hardware. |
 | `modbus_probe.py` | Read-only dump of registers or bits from any Modbus TCP device. It only sends read requests. |
 
 ```sh

@@ -14,7 +14,9 @@ Inherits ModbusTCPClient
 		  Var ok As Boolean = True
 
 		  If parts.Count > 1 Then
-		    If parts(1) = kExpectFloat Then
+		    If parts(1) = kExpectDevice Then
+		      ok = request.DeviceObjects <> Nil And request.DeviceObjects.Lookup(0, "").StringValue = kExpectedVendor
+		    ElseIf parts(1) = kExpectFloat Then
 		      ok = Abs(request.ValueAt(0, ModbusTypes.eDataType.Float32, ModbusTypes.eWordOrder.CDAB) - kFloatValue) < 0.0001
 		    Else
 		      Var expected() As String = parts(1).Split(",")
@@ -87,10 +89,20 @@ Inherits ModbusTCPClient
 		  Send(floatWrite)
 		  ReadHoldingRegisters(200, 2, Nil, "FC03 read Float32 CDAB hr200|" + kExpectFloat)
 
+		  Var readWriteValues() As Integer = Array(11, 22, 33)
+		  ReadWriteMultipleRegisters(299, 4, 300, readWriteValues, Nil, "FC23 write hr300-302 and read hr299-302|0,11,22,33")
+
+		  WriteSingleRegister(400, &h1234, Nil, "FC06 write hr400 = 0x1234")
+		  MaskWriteRegister(400, &hF0F0, &h0F0F, Nil, "FC22 mask write hr400")
+		  ReadHoldingRegisters(400, 1, Nil, "FC03 read hr400 after the mask|7999")
+		  ReturnQueryData(&hA537, Nil, "FC08 loopback 0xA537|42295")
+		  ReportServerID(Nil, "FC17 report server id|86,78,83,45,83,73,77,255")
+		  ReadDeviceIdentification(1, 0, Nil, "FC43 read device identification|" + kExpectDevice)
+		  
 		  ReadInputRegisters(0, 4, Nil, "FC04 read ir0-3|0,0,0,0")
 		  ReadDiscreteInputs(0, 3, Nil, "FC02 read di0-2|0,0,0")
 
-		  mExpected = 12
+		  mExpected = 19
 		End Sub
 	#tag EndMethod
 
@@ -111,6 +123,12 @@ Inherits ModbusTCPClient
 		Private mReport() As String
 	#tag EndProperty
 
+
+	#tag Constant, Name = kExpectDevice, Type = String, Dynamic = False, Default = \"device", Scope = Private
+	#tag EndConstant
+
+	#tag Constant, Name = kExpectedVendor, Type = String, Dynamic = False, Default = \"VeryniceSW", Scope = Private
+	#tag EndConstant
 
 	#tag Constant, Name = kExpectFloat, Type = String, Dynamic = False, Default = \"float", Scope = Private
 	#tag EndConstant
